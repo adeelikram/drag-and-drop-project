@@ -1,0 +1,227 @@
+<!DOCTYPE HTML>
+<html>
+
+<head>
+    <link rel="stylesheet" href="./node_modules/bootstrap/dist/css/bootstrap.min.css">
+    <script src="./node_modules/axios/dist/axios.min.js"></script>
+    <style>
+        tr {
+            max-width: auto;
+        }
+
+        td {
+            vertical-align: middle;
+            user-select: none;
+        }
+
+        table {
+            height: 100%;
+            border-spacing: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="mt-5 mx-auto d-flex justify-content-center">
+            <input placeholder="cols" type="number" id="cols" onkeyup="getVal1(this.value)"
+                class="form-control w-auto mx-3">
+            <span class="mt-1">X</span>
+            <input placeholder="rows" type="number" id="rows" onkeyup="getVal2(this.value)"
+                class="form-control w-auto mx-3">
+
+        </div>
+
+        <div class="row">
+            <div class="col-3">
+                <table class="table text-center w-auto mx-auto mt-lg-5 pt-5" id="slots">
+                </table>
+            </div>
+            <div class="col-6 d-block">
+                <table class="table text-center text-white w-100 mx-auto mt-lg-5 pt-5" id="actual">
+
+                </table>
+
+                <table class="table text-center w-100 h-auto mx-auto mt-3" id="items">
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+
+
+    <script>
+        var obj = { rows: 1, cols: 1, table: {} }
+        var card_value = "Item"
+        var domain = "http://localhost:3000"
+        window.onload = async function () {
+            await getData()
+        }
+
+        async function getData(method, data) {
+            var res = await axios.get(`${domain}/get`)
+            var response = res?.data
+            if (response && response?.size?.cols) {
+                var { rows, cols } = response.size
+                document.getElementById("cols").value = cols
+                document.getElementById("rows").value = rows
+                obj.cols = cols
+                obj.rows = rows
+                if (response?.data?.length) {
+                    for (var el of response.data) {
+                        var { cardno, slotno, cellno } = el.Location
+                        obj.table[`${slotno - 1}-${cellno - 1}`] = cardno - 1
+                    }
+                }
+                createTable()
+            }
+        }
+
+        async function clearData() {
+            await axios.get(`${domain}/clear`)
+        }
+
+        async function deleteOne(cardno) {
+            await axios.get(`${domain}/delete?cardno=${cardno}&rows=${obj.rows}&cols=${obj.cols}`)
+        }
+
+        function allowDrop(ev) {
+            ev.preventDefault();
+        }
+
+        function drag(ev) {
+            ev.dataTransfer.setData("text", ev.target.id);
+        }
+
+        function drop(ev) {
+            ev.preventDefault();
+            var data = ev.dataTransfer.getData("text");
+            var child = document.getElementById(data)
+            var parent = ev.target
+            if(!(/[\d]+-[\d]+/.test(parent.innerHTML))) return
+            if (/[\d]+-[\d]+/.test(data) || child.innerHTML.includes(card_value)) {
+                parent.className = child.className
+                parent.innerHTML = child.textContent
+                if (/[\d]+-[\d]+/.test(data)) {
+                    parent.commingFrom = child.commingFrom
+                    child.className = "border"
+                }
+                else {
+                    parent.commingFrom = child.cellIndex
+                    child.className = "border text-white"
+                }
+                var rowIndex = Number(parent.closest("tr").rowIndex), cellIndex = Number(parent.cellIndex)
+                child.innerHTML = (rowIndex + 1) + "-" + (cellIndex + 1)
+                obj.table[`${rowIndex}-${cellIndex}`] = parent.commingFrom
+                sendData({ slotno: rowIndex + 1, cellno: cellIndex + 1, cardno: Number(parent.commingFrom) + 1 })
+            }
+        }
+        function getVal1(val) { // here show warning if cols is smaller
+            if (!val) return
+            if (obj.rows > val) {
+                var choice = confirm("By shrinking the table you will lose data. Proceed anyway?")
+                if (!choice) {
+                    document.getElementById("cols").value = obj.cols
+                    return
+                }
+                else {
+                    obj.table = {}
+                    clearData()
+                }
+            }
+            obj.cols = 1
+            obj.cols *= val
+            createTable()
+        }
+        function getVal2(val) { // here show warning if rows is smaller
+            if (!val) return
+            if (obj.rows > val) {
+                var choice = confirm("By shrinking the table you will lose data. Proceed anyway?")
+                if (!choice) {
+                    document.getElementById("rows").value = obj.rows
+                    return
+                }
+                else {
+                    obj.table = {}
+                    clearData()
+                }
+            }
+            obj.rows = 1
+            obj.rows *= val
+            createTable()
+        }
+
+        async function sendData(data) {
+            var { rows, cols } = obj
+            await axios.post(`${domain}/post`, { size: { rows, cols }, Location: data })
+        }
+
+        function createTable() {
+            var slots = document.getElementById("slots");
+            var actual = document.getElementById("actual");
+            var items = document.getElementById("items");
+            var table_values = Object.values(obj.table)
+            slots.innerHTML = "", actual.innerHTML = "", items.innerHTML = "";
+            for (var i = 0; i < obj.rows; i++) {
+                var slot_row = slots.insertRow(i);
+                var actual_row = actual.insertRow(i);
+                if (i == 0) var item_row = items.insertRow(i);
+                for (var j = 0; j < obj.cols; j++) {
+
+                    if (j == 0) var slot_cell = slot_row.insertCell(j);
+                    slot_cell.className = "border bg-secondary text-white"
+                    slot_cell.innerHTML = "Slot " + (i + 1);
+
+                    var actual_cell = actual_row.insertCell(j);
+
+                    if (i == 0) var item_cell = item_row.insertCell(j);
+
+                    actual_cell.id = i + "-" + j
+                    if (actual_cell.id in obj.table) {
+                        actual_cell.className = "border bg-warning text-dark"
+                        actual_cell.innerHTML = card_value + " " + (obj.table[actual_cell.id] + 1)
+                        actual_cell.commingFrom = obj.table[actual_cell.id]
+                        console.log(actual_cell.id, " ", obj.table[actual_cell.id] + 1)
+                    }
+                    else {
+                        actual_cell.className = "border"
+                        actual_cell.innerHTML = (i + 1) + "-" + (j + 1);
+                    }
+
+
+                    // table drag properties
+                    actual_cell.draggable = true;
+                    actual_cell.ondrop = drop
+                    actual_cell.ondragover = allowDrop
+                    actual_cell.ondragstart = drag
+
+                    // remove innerHTML on double click
+                    actual_cell.ondblclick = function () {
+                        if (this.commingFrom == undefined) return
+                        this.className = "border"
+                        var row_index = this.closest("tr").rowIndex
+                        var cell_index = this.commingFrom
+                        this.innerHTML = (Number(row_index) + 1) + "-" + (Number(cell_index) + 1)
+                        var selected_cell = items.rows[0].cells[cell_index]
+                        selected_cell.className = "border bg-warning text-dark"
+                        selected_cell.innerHTML = card_value + (Number(cell_index) + 1)
+                        delete obj.table[this.id]
+                        deleteOne(Number(this.commingFrom) + 1)
+                    }
+                    if (i == 0) {
+                        item_cell.id = "item" + (j + 1);
+                        item_cell.className = (table_values.includes(j)) ? "border text-white" : "border bg-warning text-dark"
+                        item_cell.innerHTML = card_value + " " + (j + 1);
+                        item_cell.draggable = true;
+                        item_cell.ondragstart = drag
+                    }
+                }
+            }
+
+        }
+    </script>
+</body>
+
+</html>
